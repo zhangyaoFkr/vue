@@ -168,13 +168,22 @@ const computedWatcherOptions = { lazy: true }
 
 function initComputed (vm: Component, computed: Object) {
   // $flow-disable-line
+  // 初始化 watchers
+  // 分为两句理解 vm._computedWatchers = Object.create(null) 把实例的 _computedWatchers 赋值为空对象
+  // 拿到 vm._computedWatchers 的句柄(地址), 用 watchers 表示, 即 watchers 跟 vm._computedWatchers 为同一地址, 即为同一对象
+  // 一般以下划线开头的为私有属性
   const watchers = vm._computedWatchers = Object.create(null)
   // computed properties are just getters during SSR
+  // 判断是否是 SSR
   const isSSR = isServerRendering()
 
+  // 遍历 computed 中的所有属性
   for (const key in computed) {
+    // 拿到该属性值
+    // 一般计算属性有两种写法: 1. 带有返回值的函数; 2. 带有 get set 属性的对象
     const userDef = computed[key]
     const getter = typeof userDef === 'function' ? userDef : userDef.get
+    // 如果是开发环境 并且没有 getter, 则警告
     if (process.env.NODE_ENV !== 'production' && getter == null) {
       warn(
         `Getter is missing for computed property "${key}".`,
@@ -182,22 +191,27 @@ function initComputed (vm: Component, computed: Object) {
       )
     }
 
+    // 如果不是服务端渲染, 给 computed 中的 key 新建一个 watcher, 并挂在 watchers(vm._computedWatchers) 上
     if (!isSSR) {
       // create internal watcher for the computed property.
       watchers[key] = new Watcher(
-        vm,
+        vm, // 当前实例
         getter || noop,
-        noop,
-        computedWatcherOptions
+        noop, // function noop (a?: any, b?: any, c?: any) {}, 这里可以看出一个省内存的优化点, 在 vue 中所有的空函数都指向了 noop, 不消耗多余的内存, 以往我们可以直接写一个 () => {} 就放着了, 但这样会生成个新的方法, 占用内存资源
+        computedWatcherOptions // { lazy: true }
       )
     }
 
     // component-defined computed properties are already defined on the
     // component prototype. We only need to define computed properties defined
     // at instantiation here.
+    // 如果实例上没有该计算属性
     if (!(key in vm)) {
+      // 定义计算属性
+      // 传入 3 个参数: 当前实例, 计算属性的 key, 计算属性的 value (函数/对象)
       defineComputed(vm, key, userDef)
     } else if (process.env.NODE_ENV !== 'production') {
+      // 如果计算属性跟 props 或 data 里的属性重名, 且在开发环境, 则警告
       if (key in vm.$data) {
         warn(`The computed property "${key}" is already defined in data.`, vm)
       } else if (vm.$options.props && key in vm.$options.props) {
@@ -212,13 +226,21 @@ export function defineComputed (
   key: string,
   userDef: Object | Function
 ) {
+   // 不是 SSR 可以缓存
   const shouldCache = !isServerRendering()
+  // 分别处理两种写法
+  // 如果计算属性的值为函数
   if (typeof userDef === 'function') {
+    // sharedPropertyDefinition 定义在上面, 可以理解为一个承载 get 和 set 方法的空对象, 给 data props computed 用
+    // 当 shoudCache 为 false 把计算属性的 value(一个有返回值的函数) 赋值给了 sharedPropertyDefinition.get
+    // 当 shoudCache 为 true, 走缓存函数, 实则是该属性对应的 watcher 的 value 属性值
     sharedPropertyDefinition.get = shouldCache
       ? createComputedGetter(key)
       : createGetterInvoker(userDef)
+    // 用函数定义的 computed 属性只能获取, 不允许修改
     sharedPropertyDefinition.set = noop
-  } else {
+  } else { // 如果计算属性的值为有 get 和 set 属性的对象
+    // 跟上面的操作一样
     sharedPropertyDefinition.get = userDef.get
       ? shouldCache && userDef.cache !== false
         ? createComputedGetter(key)
@@ -226,6 +248,8 @@ export function defineComputed (
       : noop
     sharedPropertyDefinition.set = userDef.set || noop
   }
+  // 如果在定义计算属性的时候没有 set 方法, 在开发环境中会警告
+  // 场景: 1.函数的写法; 2.不写 set 方法的对象
   if (process.env.NODE_ENV !== 'production' &&
       sharedPropertyDefinition.set === noop) {
     sharedPropertyDefinition.set = function () {
@@ -235,19 +259,30 @@ export function defineComputed (
       )
     }
   }
+  // 官网中有一句话: 计算属性将被混入到 Vue 实例中。所有 getter 和 setter 的 this 上下文自动地绑定为 Vue 实例。
+  // 把计算属性绑定在实例上, 这样计算属性'成为'了实例上的属性
   Object.defineProperty(target, key, sharedPropertyDefinition)
 }
 
+// Vue 的 computed 属性是如何缓存的?
+// 不缓存的版本是直接拿的 userDef 即用户设置的计算属性值
+// 返回一个返回值为 watcher.value 的函数
 function createComputedGetter (key) {
   return function computedGetter () {
+    // 值是从实例的 _computedWatchers 属性中获取
+    // 拿到实例上的 computed key 的 watcher
     const watcher = this._computedWatchers && this._computedWatchers[key]
     if (watcher) {
+      // 第一次 dirty 是 true 执行 watcher.evaluate(), 即第一次是通过执行 get 获取的, 同时 dirty 变为 false
+      // 在 watcher 中 `this.value = this.get()` 即 watcher 实例的 value 属性是其 get 方法的返回值
+      // 第二次 计算属性依赖的属性变化会主动去更新 watcher 的 value, 所以就可以直接拿到 watcher.value 了
       if (watcher.dirty) {
         watcher.evaluate()
       }
       if (Dep.target) {
         watcher.depend()
       }
+      // 缓存的值是从 watcher 上获取的
       return watcher.value
     }
   }

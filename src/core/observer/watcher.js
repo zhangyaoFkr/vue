@@ -23,6 +23,9 @@ let uid = 0
  * and fires callback when the expression value changes.
  * This is used for both the $watch() api and directives.
  */
+// watcher 解析表达式, 收集依赖, 当表达式的值改变时触发回调.
+// 用于 $watch() api 和指令
+// 发布订阅模式
 export default class Watcher {
   vm: Component;
   expression: string;
@@ -79,6 +82,7 @@ export default class Watcher {
     if (typeof expOrFn === 'function') {
       this.getter = expOrFn
     } else {
+      // 当 expOrFn 为 string 的时候, parsePath(expOrFn) 返回一个类似 _.get 的方法, 并且 expOrFn 可以使用 'xxx.yyy' 的方式
       this.getter = parsePath(expOrFn)
       if (!this.getter) {
         this.getter = noop
@@ -103,6 +107,10 @@ export default class Watcher {
     let value
     const vm = this.vm
     try {
+      // 在 vm 的作用域上执行 watcher 的 getter 方法
+      // 传入参数 vm 是为了 可以使用箭头函数 (vm) => { return vm.someValue }
+      // this.getter 即 new Watcher 的第二个参数
+      // value 即为我们定义的方法或对象的 get 方法的执行结果
       value = this.getter.call(vm, vm)
     } catch (e) {
       if (this.user) {
@@ -161,6 +169,8 @@ export default class Watcher {
    * Subscriber interface.
    * Will be called when a dependency changes.
    */
+  // 根据依赖更新 value 的入口
+  // 官网: 依赖的响应式属性变化才会重新计算
   update () {
     /* istanbul ignore else */
     if (this.lazy) {
@@ -176,6 +186,7 @@ export default class Watcher {
    * Scheduler job interface.
    * Will be called by the scheduler.
    */
+  // 执行 run 更新 value
   run () {
     if (this.active) {
       const value = this.get()
